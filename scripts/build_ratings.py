@@ -7,7 +7,10 @@ from scipy.stats import beta
 def generate_corrected_ultimate_ratings():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     input_path = os.path.join(script_dir, '..', 'data', 'processed', 'cleaned_ball_by_ball.csv')
+    
+    # Dual Output Paths
     output_path = os.path.join(script_dir, '..', 'data', 'processed', 'player_ratings_advanced.json')
+    client_output_path = os.path.join(script_dir, '..', 'client', 'public', 'data', 'player_ratings_advanced.json')
     
     print("Loading cleaned dataset...")
     df = pd.read_csv(input_path, low_memory=False)
@@ -140,7 +143,7 @@ def generate_corrected_ultimate_ratings():
 
 
     # ---------------------------------------------
-    # 6. OVERSEAS TAGGING & EXPORT
+    # 6. OVERSEAS TAGGING, ROLES & EXPORT
     # ---------------------------------------------
     OVERSEAS_PLAYERS = {
         "A Flintoff", "A Nortje", "A Symonds", "A Zampa", "AB McDonald", "AB de Villiers", 
@@ -190,6 +193,16 @@ def generate_corrected_ultimate_ratings():
         "Younis Khan", "Abdur Razzak", "A Dananjaya"
     }
 
+    # Added Wicketkeeper override dictionary
+    KNOWN_WICKETKEEPERS = [
+        "MS Dhoni", "KD Karthik", "WP Saha", "RR Pant", "Q de Kock",
+        "JC Buttler", "KL Rahul", "Ishan Kishan", "SV Samson", "JM Bairstow",
+        "N Pooran", "H Klaasen", "PA Patel", "RV Uthappa", "NV Ojha",
+        "AT Rayudu", "SW Billings", "KS Bharat", "Jitesh Sharma", "PD Salt",
+        "BB McCullum", "AC Gilchrist", "KC Sangakkara", "Kamran Akmal",
+        "Dhruv Jurel", "P Simran Singh", "Anuj Rawat", "MS Wade"
+    ]
+
     teams_bat = df.groupby(['season', 'striker'])['batting_team'].first().reset_index().rename(columns={'striker': 'player_name', 'batting_team': 'team'})
     teams_bowl = df.groupby(['season', 'bowler'])['bowling_team'].first().reset_index().rename(columns={'bowler': 'player_name', 'bowling_team': 'team'})
     teams = pd.concat([teams_bat, teams_bowl]).drop_duplicates(subset=['season', 'player_name'], keep='first')
@@ -197,9 +210,15 @@ def generate_corrected_ultimate_ratings():
 
     final_pool = []
     for _, row in merged.iterrows():
-        if row['w_bat'] > 0.3 and row['w_bowl'] > 0.3: role = 'All-Rounder'
-        elif row['w_bowl'] > 0.6: role = 'Bowler'
-        else: role = 'Batter'
+        # Role Assignment Logic with Wicketkeeper Override
+        if row['player_name'] in KNOWN_WICKETKEEPERS: 
+            role = 'Wicketkeeper'
+        elif row['w_bat'] > 0.3 and row['w_bowl'] > 0.3: 
+            role = 'All-Rounder'
+        elif row['w_bowl'] > 0.6: 
+            role = 'Bowler'
+        else: 
+            role = 'Batter'
             
         final_pool.append({
             "name": row['player_name'],
@@ -227,11 +246,17 @@ def generate_corrected_ultimate_ratings():
             }
         })
         
+    # Dual Output Execution
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, 'w') as f:
         json.dump(final_pool, f, indent=4)
         
-    print(f"✅ Success! Generated mathematically corrected masterfile at {output_path}")
+    os.makedirs(os.path.dirname(client_output_path), exist_ok=True)
+    with open(client_output_path, 'w') as f:
+        json.dump(final_pool, f, indent=4)
+        
+    print(f"✅ Success! Masterfile generated at {output_path}")
+    print(f"✅ Success! Client file synced at {client_output_path}")
 
 if __name__ == "__main__":
     generate_corrected_ultimate_ratings()
