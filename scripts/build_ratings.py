@@ -126,12 +126,18 @@ def generate_corrected_ultimate_ratings():
     merged['emp_pct'] = merged['OVR_input'].rank(pct=True, method='average')
     safe_pct = np.clip(merged['emp_pct'], 0.001, 0.999)
     
-    # Beta distribution mapping replaces the naive 1.4 exponent
-    merged['skew_score'] = beta.ppf(safe_pct, 2.5, 5.0)
-    beta_max = beta.ppf(0.999, 2.5, 5.0)
+    # Locked-in Beta(2.5, 5.0) parameters for strict 2.2% elite scarcity
+    a, b = 2.5, 5.0
+    merged['skew_score'] = beta.ppf(safe_pct, a, b)
     
-    merged['OVR'] = 60 + (30 * (merged['skew_score'] / beta_max))
+    # Fixed theoretical stretch constant (0.839753)
+    beta_max = beta.ppf(0.999, a, b)
+    
+    # Apply stretch and clip to 0-1 bounds, then scale to 60-90
+    scaled_scores = np.clip(merged['skew_score'] / beta_max, 0, 1)
+    merged['OVR'] = 60 + (30 * scaled_scores)
     merged['OVR'] = np.clip(merged['OVR'], 60, 90).round().astype(int)
+
 
     # ---------------------------------------------
     # 6. OVERSEAS TAGGING & EXPORT
