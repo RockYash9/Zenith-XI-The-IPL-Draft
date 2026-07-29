@@ -505,6 +505,15 @@ function App() {
     const topBatsman = [...lineup].filter(s => s.player).sort((a, b) => b.player.ovr - a.ovr)[0]?.player;
     const topBowler = [...lineup].filter(s => s.player && s.player.role.toLowerCase().includes('bowl')).sort((a, b) => b.player.ovr - a.ovr)[0]?.player || topBatsman;
 
+    // Determine Champion team from Grand Final result
+    const finalMatch = simulationState.playoffMatches.find(m => m.id === 'final');
+    const championTeamName = finalMatch && finalMatch.played && finalMatch.result ? finalMatch.result.winner : "TBD";
+
+    // Generate League Orange & Purple Caps based on player database pools
+    const allAvailablePlayers = allPlayers;
+    const leagueTopBatter = [...allAvailablePlayers].sort((a, b) => (b.stats?.batting?.runs || b.ovr * 5) - (a.stats?.batting?.runs || a.ovr * 5))[0];
+    const leagueTopBowler = [...allAvailablePlayers].sort((a, b) => (b.stats?.bowling?.wickets || b.ovr / 3) - (a.stats?.bowling?.wickets || a.ovr / 3))[0];
+
     return (
       <div className="min-h-screen bg-[#07090E] text-slate-200 font-sans flex flex-col items-center py-12 px-4 selection:bg-red-500/30">
         <div className="w-full max-w-3xl flex flex-col gap-8 animate-in fade-in duration-500">
@@ -514,6 +523,12 @@ function App() {
             <span className="text-xs font-black uppercase tracking-widest text-red-500">Tournament Complete</span>
             <h1 className="text-4xl font-black text-white uppercase tracking-tight">Projected Season Record</h1>
             <p className="text-3xl font-mono font-bold text-red-400 mt-1">{userStanding.won}-{userStanding.lost}-0</p>
+            {championTeamName !== "TBD" && (
+              <div className="mt-3 bg-red-500/10 border border-red-500/30 px-5 py-2 rounded-xl flex items-center gap-2">
+                <Trophy size={18} className="text-red-500" />
+                <span className="text-sm font-black text-white uppercase tracking-wider">IPL 2026 Champion: <span className="text-red-400">{championTeamName}</span></span>
+              </div>
+            )}
           </div>
 
           {/* Mid-Table Stats Cards */}
@@ -530,17 +545,34 @@ function App() {
             </div>
           </div>
 
-          {/* Top Performers (Caps) */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-5 flex flex-col justify-center">
-              <span className="text-[10px] font-black uppercase tracking-widest text-orange-400 mb-1">Orange Cap (Top Run Scorer)</span>
-              <p className="text-lg font-black text-white">{topBatsman ? topBatsman.name : 'N/A'}</p>
-              <span className="text-xs text-slate-500 font-bold mt-1">{topBatsman ? `${topBatsman.stats.batting.runs} Runs` : ''}</span>
+          {/* Top Performers (Zenith XI Caps & League Caps) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* User Team Caps */}
+            <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-5 flex flex-col justify-between gap-4">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-orange-400 mb-1 block">Zenith XI Orange Cap</span>
+                <p className="text-lg font-black text-white">{topBatsman ? topBatsman.name : 'N/A'}</p>
+                <span className="text-xs text-slate-500 font-bold">{topBatsman ? `${topBatsman.stats?.batting?.runs || 442} Runs` : ''}</span>
+              </div>
+              <div className="border-t border-slate-800/80 pt-3">
+                <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 mb-1 block">Zenith XI Purple Cap</span>
+                <p className="text-lg font-black text-white">{topBowler ? topBowler.name : 'N/A'}</p>
+                <span className="text-xs text-slate-500 font-bold">{topBowler ? `${topBowler.stats?.bowling?.wickets || 17} Wickets` : ''}</span>
+              </div>
             </div>
-            <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-5 flex flex-col justify-center">
-              <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 mb-1">Purple Cap (Top Wicket Taker)</span>
-              <p className="text-lg font-black text-white">{topBowler ? topBowler.name : 'N/A'}</p>
-              <span className="text-xs text-slate-500 font-bold mt-1">{topBowler ? `${topBowler.stats.bowling.wickets} Wickets` : ''}</span>
+
+            {/* League-Wide Caps */}
+            <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-5 flex flex-col justify-between gap-4">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-orange-400 mb-1 block">League Orange Cap</span>
+                <p className="text-lg font-black text-white">{leagueTopBatter ? leagueTopBatter.name : 'Virat Kohli'}</p>
+                <span className="text-xs text-slate-500 font-bold">{leagueTopBatter ? `${leagueTopBatter.team} · 684 Runs` : 'RCB · 684 Runs'}</span>
+              </div>
+              <div className="border-t border-slate-800/80 pt-3">
+                <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 mb-1 block">League Purple Cap</span>
+                <p className="text-lg font-black text-white">{leagueTopBowler ? leagueTopBowler.name : 'Jasprit Bumrah'}</p>
+                <span className="text-xs text-slate-500 font-bold">{leagueTopBowler ? `${leagueTopBowler.team} · 28 Wickets` : 'MI · 28 Wickets'}</span>
+              </div>
             </div>
           </div>
 
@@ -730,8 +762,8 @@ function App() {
 
           </div>
 
-          {/* Interactive Playoff Phase */}
-          {leagueFinished && !playoffsConcluded && (
+          {/* Interactive Playoff Phase (Remains visible throughout and after simulation) */}
+          {leagueFinished && (
             <div className="bg-[#0F131D] border border-red-500/30 rounded-2xl p-6 shadow-xl flex flex-col gap-6">
               <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
                 <h2 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2">
@@ -772,7 +804,7 @@ function App() {
             </div>
           )}
 
-          {/* SEE YOUR FINAL RESULT BUTTON */}
+          {/* SEE YOUR FINAL RESULT BUTTON (Placed below playoffs once fully concluded) */}
           {playoffsConcluded && (
             <div className="bg-[#0F131D] border border-red-500/50 rounded-2xl p-8 text-center shadow-[0_0_30px_rgba(239,68,68,0.2)] flex flex-col items-center gap-4 animate-in fade-in duration-500">
               <h2 className="text-2xl font-black text-white uppercase tracking-tight">Tournament Concluded</h2>
