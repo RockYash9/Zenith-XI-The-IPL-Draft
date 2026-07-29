@@ -4,6 +4,13 @@
 
 Zenith XI is a browser-based cricket strategy game that combines a **roguelike gacha draft mechanic** with a **data-science-driven player rating system** and a **probabilistic match simulation engine**. Every player's rating is derived from real historical IPL performance data, and every simulated match outcome is grounded in a calibrated statistical model — not scripted or hardcoded results.
 
+<p>
+  <a href="https://zenith-xi-the-ipl-draft.vercel.app"><img src="https://img.shields.io/badge/Live_Demo-000000?logo=vercel&logoColor=white" alt="Live Demo"/></a>
+  <img src="https://img.shields.io/badge/deployed_on-Vercel-black?logo=vercel&logoColor=white" alt="Deployed on Vercel"/>
+</p>
+
+### 🔗 [Live Demo → zenith-xi-the-ipl-draft.vercel.app](https://zenith-xi-the-ipl-draft.vercel.app)
+
 ---
 
 ## ✨ Features
@@ -55,7 +62,7 @@ Zenith XI is a browser-based cricket strategy game that combines a **roguelike g
 | Layer | Choice | Why |
 |---|---|---|
 | **Data transport** | Static JSON (`player_ratings_advanced.json`) | Precomputing offline means zero runtime compute cost for rating logic — the client just reads numbers |
-| **Hosting model** | Zero-backend, fully static | The entire game — draft, simulation, standings — runs client-side; deployable to any static host (Vercel, Netlify, GitHub Pages) with no server |
+| **Hosting model** | Zero-backend, fully static — deployed on **Vercel** | The entire game — draft, simulation, standings — runs client-side with no server. Connected directly to this GitHub repo, so every push to `main` auto-deploys to production |
 | **State management** | React's built-in `useState`/`useReducer` | No Redux/Zustand — the state graph (3 view modes, roster array, standings table) is small enough that built-in state is the simpler, more maintainable choice |
 
 ---
