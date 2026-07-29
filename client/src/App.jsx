@@ -46,8 +46,8 @@ function App() {
   const [isSpinning, setIsSpinning] = useState(false);
   const [rollingDisplay, setRollingDisplay] = useState({ team: "---", season: "----" });
 
-  // Simulation States
-  const [viewMode, setViewMode] = useState('draft'); // 'draft', 'sim_hub', 'summary'
+  // Navigation & Simulation States ('landing', 'draft', 'sim_hub', 'summary')
+  const [viewMode, setViewMode] = useState('landing');
   const [simulationState, setSimulationState] = useState(null);
   const [isAutoSimulating, setIsAutoSimulating] = useState(false);
 
@@ -258,7 +258,6 @@ function App() {
           const t2 = round === 0 ? allTeams[j] : allTeams[i];
           const isUserMatch = t1.name === "Zenith XI" || t2.name === "Zenith XI";
           fixtures.push({
-            id: fixtures.length + 1,
             teamA: t1,
             teamB: t2,
             isUserMatch,
@@ -268,7 +267,9 @@ function App() {
         }
       }
     }
-    return fixtures;
+    // Shuffle the fixtures so CPU matches are organically interleaved with user matches
+    fixtures = fixtures.sort(() => Math.random() - 0.5);
+    return fixtures.map((f, index) => ({ ...f, id: index + 1 }));
   };
 
   const startSimulation = () => {
@@ -333,7 +334,7 @@ function App() {
     }
   };
 
-  // Automated Match Stepper for League
+  // Automated Match Stepper for League (Fast & Organic Pacing)
   useEffect(() => {
     if (!simulationState || !isAutoSimulating || simulationState.playoffStage !== 'league') return;
 
@@ -341,6 +342,7 @@ function App() {
     const nextUserMatchIndex = schedule.findIndex(f => f.isUserMatch && !f.played);
 
     if (nextUserMatchIndex === -1) {
+      // Simulate any remaining CPU matches at the very end of the schedule
       setIsAutoSimulating(false);
       const updatedSchedule = [...schedule];
       const updatedStandings = JSON.parse(JSON.stringify(standings));
@@ -355,13 +357,13 @@ function App() {
         }
       });
       const playoffMatches = setupPlayoffs(updatedStandings, teams);
-      setSimulationState({
-        ...simulationState,
+      setSimulationState(prev => ({
+        ...prev,
         schedule: updatedSchedule,
         standings: updatedStandings,
         playoffStage: 'playoffs',
         playoffMatches
-      });
+      }));
       return;
     }
 
@@ -369,6 +371,7 @@ function App() {
       const updatedSchedule = [...schedule];
       const updatedStandings = JSON.parse(JSON.stringify(standings));
 
+      // Simulate all CPU matches up to the next User Match, plus the User Match itself
       for (let i = 0; i <= nextUserMatchIndex; i++) {
         const fixture = updatedSchedule[i];
         if (!fixture.played) {
@@ -381,12 +384,12 @@ function App() {
         }
       }
 
-      setSimulationState({
-        ...simulationState,
+      setSimulationState(prev => ({
+        ...prev,
         schedule: updatedSchedule,
         standings: updatedStandings
-      });
-    }, 800);
+      }));
+    }, 800); // 800ms cadence keeps it fast and exciting
 
     return () => clearTimeout(timer);
   }, [simulationState, isAutoSimulating]);
@@ -455,43 +458,98 @@ function App() {
 
   const teamsObj = (name, teamsList) => teamsList.find(t => t.name === name);
 
-  const playPlayoffMatch = (matchId) => {
+  // Automatic Playoff Match Stepper
+  useEffect(() => {
+    if (!simulationState || simulationState.playoffStage !== 'playoffs') return;
+
     let matches = [...simulationState.playoffMatches];
-    const matchIdx = matches.findIndex(m => m.id === matchId);
-    if (matchIdx === -1 || matches[matchIdx].played || !matches[matchIdx].teamA || !matches[matchIdx].teamB) return;
+    const unplayedIndex = matches.findIndex(m => !m.played && m.teamA && m.teamB);
 
-    const m = matches[matchIdx];
-    const res = simulateMatch(m.teamA, m.teamB);
-    m.played = true;
-    m.result = res;
-
-    const winnerTeam = teamsObj(res.winner, simulationState.teams);
-    const loserTeam = teamsObj(res.winner === m.teamA.name ? m.teamB.name : m.teamA.name, simulationState.teams);
-
-    if (matchId === 'q1') {
-      const finalMatch = matches.find(x => x.id === 'final');
-      finalMatch.teamA = winnerTeam;
-      const q2Match = matches.find(x => x.id === 'q2');
-      q2Match.teamA = loserTeam;
-    } else if (matchId === 'elim') {
-      const q2Match = matches.find(x => x.id === 'q2');
-      q2Match.teamB = winnerTeam;
-    } else if (matchId === 'q2') {
-      const finalMatch = matches.find(x => x.id === 'final');
-      finalMatch.teamB = winnerTeam;
-    } else if (matchId === 'final') {
-      simulationState.playoffStage = 'completed';
+    if (unplayedIndex === -1) {
+      const finalMatch = matches.find(m => m.id === 'final');
+      if (finalMatch && finalMatch.played && simulationState.playoffStage !== 'completed') {
+        setSimulationState(prev => ({ ...prev, playoffStage: 'completed' }));
+      }
+      return;
     }
 
-    setSimulationState({
-      ...simulationState,
-      playoffMatches: matches
-    });
-  };
+    const timer = setTimeout(() => {
+      const m = matches[unplayedIndex];
+      const res = simulateMatch(m.teamA, m.teamB);
+      m.played = true;
+      m.result = res;
+
+      const winnerTeam = teamsObj(res.winner, simulationState.teams);
+      const loserTeam = teamsObj(res.winner === m.teamA.name ? m.teamB.name : m.teamA.name, simulationState.teams);
+
+      if (m.id === 'q1') {
+        const finalMatch = matches.find(x => x.id === 'final');
+        finalMatch.teamA = winnerTeam;
+        const q2Match = matches.find(x => x.id === 'q2');
+        q2Match.teamA = loserTeam;
+      } else if (m.id === 'elim') {
+        const q2Match = matches.find(x => x.id === 'q2');
+        q2Match.teamB = winnerTeam;
+      } else if (m.id === 'q2') {
+        const finalMatch = matches.find(x => x.id === 'final');
+        finalMatch.teamB = winnerTeam;
+      }
+
+      setSimulationState(prev => ({
+        ...prev,
+        playoffMatches: matches
+      }));
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [simulationState]);
 
   const draftedPlayersCount = lineup.filter(s => s.player !== null).length;
   const overseasCount = lineup.filter(s => s.player?.is_overseas).length;
   const isDraftComplete = draftedPlayersCount === 11;
+
+  // ---------------------------------------------------------
+  // RENDER LANDING PAGE VIEW (Original Red/Black Theme)
+  // ---------------------------------------------------------
+  if (viewMode === 'landing') {
+    return (
+      <div className="min-h-screen bg-[#07090E] text-slate-200 font-sans flex flex-col items-center justify-center p-4 selection:bg-red-500/30">
+        <div className="w-full max-w-xl flex flex-col items-center text-center gap-6 animate-in fade-in zoom-in-95 duration-500">
+          
+          <div>
+            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white uppercase">
+              ZENITH<span className="text-red-500">XI</span>
+            </h1>
+            <p className="text-[10px] font-bold text-slate-500 tracking-[0.3em] uppercase mt-1">Build The Ultimate IPL XI</p>
+          </div>
+
+          <div className="bg-[#0F131D] border border-slate-800/80 rounded-3xl p-8 shadow-2xl w-full flex flex-col items-center gap-6 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-transparent via-red-500 to-transparent"></div>
+            
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20">IPL Fantasy Draft</span>
+              <h2 className="text-3xl md:text-4xl font-black text-white uppercase tracking-tight mt-3">
+                Build The Ultimate <span className="text-red-500">IPL XI</span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-3 font-medium leading-relaxed max-w-md mx-auto">
+                Draft a dream team from real squads across every IPL season — then see if it can go 20 & 0. No team ever has.
+              </p>
+            </div>
+
+            <button 
+              onClick={() => setViewMode('draft')}
+              className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xl uppercase py-5 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_30px_rgba(239,68,68,0.3)] flex items-center justify-center gap-2"
+            >
+              <Play size={22} className="fill-white" /> Play
+            </button>
+          </div>
+
+          <p className="text-[11px] text-slate-600 font-semibold tracking-wider uppercase">Powered by Advanced Bayesian Statistics & T20 Simulation Engine</p>
+
+        </div>
+      </div>
+    );
+  }
 
   // ---------------------------------------------------------
   // RENDER SUMMARY SCREEN
@@ -505,11 +563,9 @@ function App() {
     const topBatsman = [...lineup].filter(s => s.player).sort((a, b) => b.player.ovr - a.ovr)[0]?.player;
     const topBowler = [...lineup].filter(s => s.player && s.player.role.toLowerCase().includes('bowl')).sort((a, b) => b.player.ovr - a.ovr)[0]?.player || topBatsman;
 
-    // Determine Champion team from Grand Final result
     const finalMatch = simulationState.playoffMatches.find(m => m.id === 'final');
     const championTeamName = finalMatch && finalMatch.played && finalMatch.result ? finalMatch.result.winner : "TBD";
 
-    // Generate League Orange & Purple Caps based on player database pools
     const allAvailablePlayers = allPlayers;
     const leagueTopBatter = [...allAvailablePlayers].sort((a, b) => (b.stats?.batting?.runs || b.ovr * 5) - (a.stats?.batting?.runs || a.ovr * 5))[0];
     const leagueTopBowler = [...allAvailablePlayers].sort((a, b) => (b.stats?.bowling?.wickets || b.ovr / 3) - (a.stats?.bowling?.wickets || a.ovr / 3))[0];
@@ -518,7 +574,6 @@ function App() {
       <div className="min-h-screen bg-[#07090E] text-slate-200 font-sans flex flex-col items-center py-12 px-4 selection:bg-red-500/30">
         <div className="w-full max-w-3xl flex flex-col gap-8 animate-in fade-in duration-500">
           
-          {/* Summary Header */}
           <div className="text-center flex flex-col items-center gap-2">
             <span className="text-xs font-black uppercase tracking-widest text-red-500">Tournament Complete</span>
             <h1 className="text-4xl font-black text-white uppercase tracking-tight">Projected Season Record</h1>
@@ -531,7 +586,6 @@ function App() {
             )}
           </div>
 
-          {/* Mid-Table Stats Cards */}
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-6 text-center shadow-lg">
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Final Position</span>
@@ -545,9 +599,7 @@ function App() {
             </div>
           </div>
 
-          {/* Top Performers (Zenith XI Caps & League Caps) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* User Team Caps */}
             <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-5 flex flex-col justify-between gap-4">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-widest text-orange-400 mb-1 block">Zenith XI Orange Cap</span>
@@ -561,7 +613,6 @@ function App() {
               </div>
             </div>
 
-            {/* League-Wide Caps */}
             <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-5 flex flex-col justify-between gap-4">
               <div>
                 <span className="text-[10px] font-black uppercase tracking-widest text-orange-400 mb-1 block">League Orange Cap</span>
@@ -576,7 +627,6 @@ function App() {
             </div>
           </div>
 
-          {/* Final XI Table */}
           <div className="bg-[#0F131D] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="p-5 border-b border-slate-800 bg-[#131825] flex justify-between items-center">
               <h2 className="text-lg font-black uppercase tracking-tight text-white">Final XI</h2>
@@ -589,7 +639,7 @@ function App() {
               {lineup.map((slot, index) => (
                 <div key={slot.id} className={`flex items-center p-4 ${index !== lineup.length - 1 ? 'border-b border-slate-800/50' : ''} hover:bg-[#131825] transition-colors`}>
                   <div className="w-8 flex-shrink-0 font-black text-slate-600 text-sm">{slot.id}</div>
-                  <div className="w-32 flex-shrink-0 text-[10px] font-bold uppercase tracking-widest text-red-400">{slot.label}</div>
+                  <div className="w-32 flex-shrink-0 text-[10px] font-bold uppercase tracking-widest text-red-500">{slot.label}</div>
                   <div className="flex-grow flex items-center justify-between">
                     {slot.player ? (
                       <>
@@ -617,7 +667,6 @@ function App() {
             </div>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex gap-4">
             <button 
               onClick={() => { setViewMode('draft'); setLineup(INITIAL_LINEUP); setSimulationState(null); }}
@@ -632,6 +681,9 @@ function App() {
     );
   }
 
+  // ---------------------------------------------------------
+  // RENDER SIMULATION HUB VIEW
+  // ---------------------------------------------------------
   if (viewMode === 'sim_hub' && simulationState) {
     const sortedStandings = getSortedStandings(simulationState.standings);
     const userFixtures = simulationState.schedule.filter(f => f.isUserMatch);
@@ -646,7 +698,6 @@ function App() {
       <div className="min-h-screen bg-[#07090E] text-slate-200 font-sans flex flex-col items-center py-10 px-4 selection:bg-red-500/30">
         <div className="w-full max-w-6xl flex flex-col gap-6">
           
-          {/* Header */}
           <header className="flex justify-between items-end border-b-2 border-slate-800 pb-4">
             <div>
               <h1 className="text-2xl font-black tracking-tight text-white uppercase">
@@ -664,7 +715,6 @@ function App() {
             )}
           </header>
 
-          {/* Season Record Header Card */}
           <div className="bg-[#0F131D] border border-slate-800/80 rounded-2xl p-6 text-center shadow-xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-red-500 to-transparent"></div>
             <p className="text-[10px] font-black tracking-widest uppercase text-slate-500 mb-1">Season in Progress</p>
@@ -676,7 +726,6 @@ function App() {
             </p>
           </div>
 
-          {/* SIDE-BY-SIDE TWO COLUMN LAYOUT */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             
             {/* Left Column: Zenith XI Fixture Log */}
@@ -762,49 +811,41 @@ function App() {
 
           </div>
 
-          {/* Interactive Playoff Phase (Remains visible throughout and after simulation) */}
+          {/* Automatic Playoff Phase */}
           {leagueFinished && (
             <div className="bg-[#0F131D] border border-red-500/30 rounded-2xl p-6 shadow-xl flex flex-col gap-6">
               <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
                 <h2 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2">
                   <Trophy size={20} className="text-red-500" /> IPL 2026 Playoffs
                 </h2>
-                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">Match-by-Match</span>
+                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">
+                  {playoffsConcluded ? "Playoffs Concluded" : "Simulating Automatically..."}
+                </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {simulationState.playoffMatches.map((m) => {
-                  const canPlay = m.teamA && m.teamB && !m.played;
-                  return (
-                    <div key={m.id} className="bg-[#07090E] border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-md">
-                      <div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-red-400">{m.name}</span>
-                        <div className="flex justify-between items-center mt-3 text-sm font-bold">
-                          <span className={m.result?.winner === m.teamA?.name ? 'text-white font-black' : 'text-slate-400'}>{m.teamA ? m.teamA.name : 'TBD'}</span>
-                          <span className="text-xs text-slate-600 font-mono">VS</span>
-                          <span className={m.result?.winner === m.teamB?.name ? 'text-white font-black' : 'text-slate-400'}>{m.teamB ? m.teamB.name : 'TBD'}</span>
-                        </div>
-                        {m.played && (
-                          <p className="text-xs text-emerald-400 font-bold mt-3 text-center bg-emerald-500/10 py-1.5 rounded border border-emerald-500/20">{m.result.marginText}</p>
-                        )}
+                {simulationState.playoffMatches.map((m) => (
+                  <div key={m.id} className="bg-[#07090E] border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-md">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-red-500">{m.name}</span>
+                      <div className="flex justify-between items-center mt-3 text-sm font-bold">
+                        <span className={m.result?.winner === m.teamA?.name ? 'text-white font-black' : 'text-slate-400'}>{m.teamA ? m.teamA.name : 'TBD'}</span>
+                        <span className="text-xs text-slate-600 font-mono">VS</span>
+                        <span className={m.result?.winner === m.teamB?.name ? 'text-white font-black' : 'text-slate-400'}>{m.teamB ? m.teamB.name : 'TBD'}</span>
                       </div>
-
-                      {canPlay && (
-                        <button 
-                          onClick={() => playPlayoffMatch(m.id)}
-                          className="w-full bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase py-2.5 rounded-lg transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]"
-                        >
-                          Simulate Match
-                        </button>
+                      {m.played ? (
+                        <p className="text-xs text-emerald-400 font-bold mt-3 text-center bg-emerald-500/10 py-1.5 rounded border border-emerald-500/20">{m.result.marginText}</p>
+                      ) : (
+                        <p className="text-xs text-slate-500 font-medium italic mt-3 text-center">Pending Simulation...</p>
                       )}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* SEE YOUR FINAL RESULT BUTTON (Placed below playoffs once fully concluded) */}
+          {/* SEE YOUR FINAL RESULT BUTTON */}
           {playoffsConcluded && (
             <div className="bg-[#0F131D] border border-red-500/50 rounded-2xl p-8 text-center shadow-[0_0_30px_rgba(239,68,68,0.2)] flex flex-col items-center gap-4 animate-in fade-in duration-500">
               <h2 className="text-2xl font-black text-white uppercase tracking-tight">Tournament Concluded</h2>
@@ -823,6 +864,9 @@ function App() {
     );
   }
 
+  // ---------------------------------------------------------
+  // RENDER DRAFT ROOM VIEW
+  // ---------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#07090E] text-slate-200 font-sans flex flex-col items-center py-10 px-4 selection:bg-red-500/30">
       
@@ -865,7 +909,7 @@ function App() {
             <button 
               onClick={handleSpin}
               disabled={isSpinning || teamSeasons.length === 0}
-              className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xl uppercase py-5 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 disabled:bg-slate-800 disabled:text-slate-500 flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(225,29,72,0.25)] border border-red-400/20"
+              className="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xl uppercase py-5 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 disabled:bg-slate-800 disabled:text-slate-500 flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(239,68,68,0.25)] border border-red-400/20"
             >
               {isSpinning ? "Rolling Archives..." : "Spin Archives"}
             </button>
@@ -967,7 +1011,7 @@ function App() {
                   <span className="font-black text-slate-600">{slot.id}</span>
                 </div>
                 <div className="w-32 flex-shrink-0">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">{slot.label}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-red-500">{slot.label}</span>
                 </div>
 
                 <div className="flex-grow flex items-center justify-between">
