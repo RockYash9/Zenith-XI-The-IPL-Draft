@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dices, Plane, Users, ChevronRight, Ban, CheckCircle2, Trophy, Play, RotateCcw, Shield, FastForward } from 'lucide-react';
+import { Dices, Plane, Users, ChevronRight, Ban, CheckCircle2, Trophy, Play, RotateCcw, Shield, FastForward, ArrowRight } from 'lucide-react';
 
 const INITIAL_LINEUP = [
   { id: 1, label: "Opener", type: "BAT", player: null },
@@ -47,7 +47,7 @@ function App() {
   const [rollingDisplay, setRollingDisplay] = useState({ team: "---", season: "----" });
 
   // Simulation States
-  const [viewMode, setViewMode] = useState('draft'); // 'draft', 'sim_hub'
+  const [viewMode, setViewMode] = useState('draft'); // 'draft', 'sim_hub', 'summary'
   const [simulationState, setSimulationState] = useState(null);
   const [isAutoSimulating, setIsAutoSimulating] = useState(false);
 
@@ -333,7 +333,7 @@ function App() {
     }
   };
 
-  // Automated Match Stepper
+  // Automated Match Stepper for League
   useEffect(() => {
     if (!simulationState || !isAutoSimulating || simulationState.playoffStage !== 'league') return;
 
@@ -455,38 +455,150 @@ function App() {
 
   const teamsObj = (name, teamsList) => teamsList.find(t => t.name === name);
 
-  const simulatePlayoffs = () => {
+  const playPlayoffMatch = (matchId) => {
     let matches = [...simulationState.playoffMatches];
-    
-    matches[0].played = true;
-    matches[0].result = simulateMatch(matches[0].teamA, matches[0].teamB);
-    matches[1].played = true;
-    matches[1].result = simulateMatch(matches[1].teamA, matches[1].teamB);
+    const matchIdx = matches.findIndex(m => m.id === matchId);
+    if (matchIdx === -1 || matches[matchIdx].played || !matches[matchIdx].teamA || !matches[matchIdx].teamB) return;
 
-    const q1Loser = matches[0].result.winner === matches[0].teamA.name ? matches[0].teamB : matches[0].teamA;
-    const elimWinner = teamsObj(matches[1].result.winner, simulationState.teams);
-    matches[2].teamA = q1Loser;
-    matches[2].teamB = elimWinner;
-    matches[2].played = true;
-    matches[2].result = simulateMatch(q1Loser, elimWinner);
+    const m = matches[matchIdx];
+    const res = simulateMatch(m.teamA, m.teamB);
+    m.played = true;
+    m.result = res;
 
-    const q1Winner = teamsObj(matches[0].result.winner, simulationState.teams);
-    const q2Winner = teamsObj(matches[2].result.winner, simulationState.teams);
-    matches[3].teamA = q1Winner;
-    matches[3].teamB = q2Winner;
-    matches[3].played = true;
-    matches[3].result = simulateMatch(q1Winner, q2Winner);
+    const winnerTeam = teamsObj(res.winner, simulationState.teams);
+    const loserTeam = teamsObj(res.winner === m.teamA.name ? m.teamB.name : m.teamA.name, simulationState.teams);
+
+    if (matchId === 'q1') {
+      const finalMatch = matches.find(x => x.id === 'final');
+      finalMatch.teamA = winnerTeam;
+      const q2Match = matches.find(x => x.id === 'q2');
+      q2Match.teamA = loserTeam;
+    } else if (matchId === 'elim') {
+      const q2Match = matches.find(x => x.id === 'q2');
+      q2Match.teamB = winnerTeam;
+    } else if (matchId === 'q2') {
+      const finalMatch = matches.find(x => x.id === 'final');
+      finalMatch.teamB = winnerTeam;
+    } else if (matchId === 'final') {
+      simulationState.playoffStage = 'completed';
+    }
 
     setSimulationState({
       ...simulationState,
-      playoffMatches: matches,
-      playoffStage: 'completed'
+      playoffMatches: matches
     });
   };
 
   const draftedPlayersCount = lineup.filter(s => s.player !== null).length;
   const overseasCount = lineup.filter(s => s.player?.is_overseas).length;
   const isDraftComplete = draftedPlayersCount === 11;
+
+  // ---------------------------------------------------------
+  // RENDER SUMMARY SCREEN
+  // ---------------------------------------------------------
+  if (viewMode === 'summary' && simulationState) {
+    const sortedStandings = getSortedStandings(simulationState.standings);
+    const userRank = sortedStandings.findIndex(t => t.name === "Zenith XI") + 1;
+    const userStanding = sortedStandings.find(t => t.name === "Zenith XI");
+    const squadRating = Math.round(lineup.reduce((acc, s) => acc + (s.player ? s.player.ovr : 75), 0) / 11);
+
+    const topBatsman = [...lineup].filter(s => s.player).sort((a, b) => b.player.ovr - a.ovr)[0]?.player;
+    const topBowler = [...lineup].filter(s => s.player && s.player.role.toLowerCase().includes('bowl')).sort((a, b) => b.player.ovr - a.ovr)[0]?.player || topBatsman;
+
+    return (
+      <div className="min-h-screen bg-[#07090E] text-slate-200 font-sans flex flex-col items-center py-12 px-4 selection:bg-red-500/30">
+        <div className="w-full max-w-3xl flex flex-col gap-8 animate-in fade-in duration-500">
+          
+          {/* Summary Header */}
+          <div className="text-center flex flex-col items-center gap-2">
+            <span className="text-xs font-black uppercase tracking-widest text-red-500">Tournament Complete</span>
+            <h1 className="text-4xl font-black text-white uppercase tracking-tight">Projected Season Record</h1>
+            <p className="text-3xl font-mono font-bold text-red-400 mt-1">{userStanding.won}-{userStanding.lost}-0</p>
+          </div>
+
+          {/* Mid-Table Stats Cards */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-6 text-center shadow-lg">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Final Position</span>
+              <p className="text-3xl font-black text-white mt-1">{userRank}{userRank === 1 ? 'ST' : userRank === 2 ? 'ND' : userRank === 3 ? 'RD' : 'TH'}</p>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 block">League Standings</span>
+            </div>
+            <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-6 text-center shadow-lg">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Squad Rating</span>
+              <p className="text-3xl font-black text-red-400 mt-1">{squadRating}.6</p>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 block">Elite Franchise Grade</span>
+            </div>
+          </div>
+
+          {/* Top Performers (Caps) */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-5 flex flex-col justify-center">
+              <span className="text-[10px] font-black uppercase tracking-widest text-orange-400 mb-1">Orange Cap (Top Run Scorer)</span>
+              <p className="text-lg font-black text-white">{topBatsman ? topBatsman.name : 'N/A'}</p>
+              <span className="text-xs text-slate-500 font-bold mt-1">{topBatsman ? `${topBatsman.stats.batting.runs} Runs` : ''}</span>
+            </div>
+            <div className="bg-[#0F131D] border border-slate-800 rounded-2xl p-5 flex flex-col justify-center">
+              <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 mb-1">Purple Cap (Top Wicket Taker)</span>
+              <p className="text-lg font-black text-white">{topBowler ? topBowler.name : 'N/A'}</p>
+              <span className="text-xs text-slate-500 font-bold mt-1">{topBowler ? `${topBowler.stats.bowling.wickets} Wickets` : ''}</span>
+            </div>
+          </div>
+
+          {/* Final XI Table */}
+          <div className="bg-[#0F131D] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-5 border-b border-slate-800 bg-[#131825] flex justify-between items-center">
+              <h2 className="text-lg font-black uppercase tracking-tight text-white">Final XI</h2>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 bg-[#07090E] px-3 py-1 rounded border border-slate-700">
+                <Plane size={12} className="text-red-400" /> Overseas {overseasCount}/4
+              </div>
+            </div>
+            
+            <div className="flex flex-col">
+              {lineup.map((slot, index) => (
+                <div key={slot.id} className={`flex items-center p-4 ${index !== lineup.length - 1 ? 'border-b border-slate-800/50' : ''} hover:bg-[#131825] transition-colors`}>
+                  <div className="w-8 flex-shrink-0 font-black text-slate-600 text-sm">{slot.id}</div>
+                  <div className="w-32 flex-shrink-0 text-[10px] font-bold uppercase tracking-widest text-red-400">{slot.label}</div>
+                  <div className="flex-grow flex items-center justify-between">
+                    {slot.player ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white text-base">{slot.player.name}</span>
+                          {slot.player.is_overseas && <Plane size={12} className="text-red-400" />}
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-xs font-extrabold text-slate-400 tracking-wider">
+                            {slot.player.team} {slot.player.season.slice(-2)}
+                          </span>
+                          <span className={`font-black text-sm px-2.5 py-0.5 rounded bg-[#07090E] border border-slate-700 ${
+                            slot.player.ovr >= 85 ? 'text-yellow-400' : slot.player.ovr >= 75 ? 'text-slate-200' : 'text-orange-400'
+                          }`}>
+                            {slot.player.ovr}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-slate-600 italic text-sm">Open</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-4">
+            <button 
+              onClick={() => { setViewMode('draft'); setLineup(INITIAL_LINEUP); setSimulationState(null); }}
+              className="flex-grow bg-slate-800 hover:bg-slate-700 text-white font-black text-sm uppercase py-4 rounded-xl transition-all border border-slate-700 flex items-center justify-center gap-2"
+            >
+              <RotateCcw size={16} /> Build Another XI
+            </button>
+          </div>
+
+        </div>
+      </div>
+    );
+  }
 
   if (viewMode === 'sim_hub' && simulationState) {
     const sortedStandings = getSortedStandings(simulationState.standings);
@@ -496,6 +608,7 @@ function App() {
     const userLosses = playedUserMatches.length - userWins;
     const userPoints = userWins * 2;
     const leagueFinished = simulationState.playoffStage !== 'league';
+    const playoffsConcluded = simulationState.playoffStage === 'completed';
 
     return (
       <div className="min-h-screen bg-[#07090E] text-slate-200 font-sans flex flex-col items-center py-10 px-4 selection:bg-red-500/30">
@@ -531,7 +644,7 @@ function App() {
             </p>
           </div>
 
-          {/* SIDE-BY-SIDE TWO COLUMN LAYOUT: Fixtures Log (Left) & Real-Time Points Table (Right) */}
+          {/* SIDE-BY-SIDE TWO COLUMN LAYOUT */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             
             {/* Left Column: Zenith XI Fixture Log */}
@@ -617,46 +730,59 @@ function App() {
 
           </div>
 
-          {/* Playoff Trigger */}
-          {leagueFinished && simulationState.playoffStage === 'playoffs' && (
-            <div className="bg-[#0F131D] border border-red-500/30 rounded-2xl p-6 text-center shadow-xl flex flex-col items-center gap-4">
-              <h2 className="text-2xl font-black text-white uppercase tracking-tight">League Concluded</h2>
-              <p className="text-xs text-slate-400 font-medium">Click below to simulate all 4 playoff matches simultaneously.</p>
-              <button 
-                onClick={simulatePlayoffs}
-                className="bg-red-600 hover:bg-red-500 text-white font-black text-sm uppercase px-8 py-3.5 rounded-xl transition-all shadow-[0_0_20px_rgba(239,68,68,0.3)] flex items-center gap-2"
-              >
-                <Trophy size={16} /> Simulate Playoffs (All 4 Matches)
-              </button>
-            </div>
-          )}
-
-          {/* Completed Playoffs Display */}
-          {simulationState.playoffStage === 'completed' && (
+          {/* Interactive Playoff Phase */}
+          {leagueFinished && !playoffsConcluded && (
             <div className="bg-[#0F131D] border border-red-500/30 rounded-2xl p-6 shadow-xl flex flex-col gap-6">
               <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
                 <h2 className="text-xl font-black uppercase tracking-tight text-white flex items-center gap-2">
-                  <Trophy size={20} className="text-red-500" /> IPL 2026 Playoffs Result
+                  <Trophy size={20} className="text-red-500" /> IPL 2026 Playoffs
                 </h2>
+                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">Match-by-Match</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {simulationState.playoffMatches.map((m) => (
-                  <div key={m.id} className="bg-[#07090E] border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3">
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-red-400">{m.name}</span>
-                      <div className="flex justify-between items-center mt-2 text-sm font-bold">
-                        <span className={m.result?.winner === m.teamA?.name ? 'text-white font-black' : 'text-slate-400'}>{m.teamA ? m.teamA.name : 'TBD'}</span>
-                        <span className="text-xs text-slate-600 font-mono">VS</span>
-                        <span className={m.result?.winner === m.teamB?.name ? 'text-white font-black' : 'text-slate-400'}>{m.teamB ? m.teamB.name : 'TBD'}</span>
+                {simulationState.playoffMatches.map((m) => {
+                  const canPlay = m.teamA && m.teamB && !m.played;
+                  return (
+                    <div key={m.id} className="bg-[#07090E] border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-md">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-red-400">{m.name}</span>
+                        <div className="flex justify-between items-center mt-3 text-sm font-bold">
+                          <span className={m.result?.winner === m.teamA?.name ? 'text-white font-black' : 'text-slate-400'}>{m.teamA ? m.teamA.name : 'TBD'}</span>
+                          <span className="text-xs text-slate-600 font-mono">VS</span>
+                          <span className={m.result?.winner === m.teamB?.name ? 'text-white font-black' : 'text-slate-400'}>{m.teamB ? m.teamB.name : 'TBD'}</span>
+                        </div>
+                        {m.played && (
+                          <p className="text-xs text-emerald-400 font-bold mt-3 text-center bg-emerald-500/10 py-1.5 rounded border border-emerald-500/20">{m.result.marginText}</p>
+                        )}
                       </div>
-                      {m.played && (
-                        <p className="text-xs text-emerald-400 font-bold mt-2 text-center bg-emerald-500/10 py-1 rounded border border-emerald-500/20">{m.result.marginText}</p>
+
+                      {canPlay && (
+                        <button 
+                          onClick={() => playPlayoffMatch(m.id)}
+                          className="w-full bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase py-2.5 rounded-lg transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)]"
+                        >
+                          Simulate Match
+                        </button>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+            </div>
+          )}
+
+          {/* SEE YOUR FINAL RESULT BUTTON */}
+          {playoffsConcluded && (
+            <div className="bg-[#0F131D] border border-red-500/50 rounded-2xl p-8 text-center shadow-[0_0_30px_rgba(239,68,68,0.2)] flex flex-col items-center gap-4 animate-in fade-in duration-500">
+              <h2 className="text-2xl font-black text-white uppercase tracking-tight">Tournament Concluded</h2>
+              <p className="text-xs text-slate-400 font-medium">All league and playoff matches have successfully concluded.</p>
+              <button 
+                onClick={() => setViewMode('summary')}
+                className="bg-red-600 hover:bg-red-500 text-white font-black text-base uppercase px-10 py-4 rounded-xl transition-all hover:scale-105 shadow-[0_0_20px_rgba(239,68,68,0.4)] flex items-center gap-2"
+              >
+                See Your Final Result <ArrowRight size={20} />
+              </button>
             </div>
           )}
 
